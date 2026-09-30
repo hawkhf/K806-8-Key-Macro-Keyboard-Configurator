@@ -89,7 +89,7 @@ OBJECT_START = 0x0400
 # Highest byte positively observed in the supplied vendor captures (macro test3).
 OBJECT_END = 0x0547
 PROJECT_FORMAT = "x806-configurator-project"
-PROJECT_VERSION = 5
+PROJECT_VERSION = 6
 UPLOAD_LOG_FORMAT = "x806-upload-record"
 UPLOAD_LOG_VERSION = 1
 VENDOR_CONFIG_CANDIDATES = [
@@ -152,6 +152,11 @@ LIGHTING_COLOR_FIELDS = {
     "red": {"label":"Red", "shift":4, "verified":True},
     "purple": {"label":"Purple", "shift":6, "verified":True},
 }
+USB_REPORT_CODES = {125:0x07,250:0x03,500:0x01,1000:0x00}
+USB_REPORT_ADDRESS=0x001E
+# Additional active descriptors outside the three editable key banks. The
+# vendor rewrites their header byte whenever the USB report interval changes.
+USB_REPORT_MIRROR_ADDRESSES=(0x0226,0x0230,0x023A,0x02B2,0x02BC,0x02C6)
 
 # HID Keyboard/Keypad Usage IDs.
 HID_KEYS = {
@@ -360,17 +365,18 @@ def compile_macro(events):
         raw.append(0)
     return bytes(raw), len(tokens)
 
-def make_descriptor(action, ptr, macro_tokens=None):
+def make_descriptor(action, ptr, macro_tokens=None, report_code=0x01):
     lo, hi = ptr & 0xFF, (ptr >> 8) & 0xFF
     if action["type"] == "key":
         usage = action["usage"]
-        return bytes([0x01,0x01,usage,0,0,lo,hi,0,0,0])
+        return bytes([report_code,0x01,usage,0,0,lo,hi,0,0,0])
     if action["type"] == "macro":
         if macro_tokens is None:
             raise ValueError("Macro token count required")
-        return bytes([0x01,macro_tokens & 0xFF,0,0,0,lo,hi,0,0x0A,0])
+        return bytes([report_code,macro_tokens & 0xFF,0,0,0,lo,hi,0,0x0A,0])
     if action["type"] == "direct":
-        return DIRECT_ACTIONS[action["action"]].get("descriptor",b"\x00"*10)
+        descriptor=DIRECT_ACTIONS[action["action"]].get("descriptor",b"\x00"*10)
+        return bytes([report_code])+descriptor[1:] if any(descriptor) else descriptor
     if action["type"] in ("game2","raw"):
         return b"\x00" * 10
     raise ValueError("Unsupported action type")
@@ -387,8 +393,10 @@ def default_project():
         "version":PROJECT_VERSION,
         "lighting":{
             "mode":"cycle_breath",
+            "cycle_time":4,
             "colors":{name:True for name in LIGHTING_COLOR_FIELDS},
         },
+        "usb_report_hz":500,
         "profiles": {name: default_profile() for name in PROFILE_NAMES},
     }
 
@@ -408,16 +416,24 @@ def normalize_project(data):
     lighting_mode=(lighting or {}).get("mode","cycle_breath")
     if lighting_mode not in LIGHTING_MODES:
         raise ValueError(f"Unknown lighting mode {lighting_mode!r}")
+    cycle_time=int((lighting or {}).get("cycle_time",4))
+    if not 1 <= cycle_time <= 6:
+        raise ValueError("Lighting cycle time must be between 1 and 6")
     source_colors=(lighting or {}).get("colors",{})
     if source_colors is not None and not isinstance(source_colors,dict):
         raise ValueError("Project lighting colors must be an object")
     clean["lighting"]={
         "mode":lighting_mode,
+        "cycle_time":cycle_time,
         "colors":{
             name:bool((source_colors or {}).get(name,True))
             for name in LIGHTING_COLOR_FIELDS
         },
     }
+    usb_report_hz=int(data.get("usb_report_hz",500))
+    if usb_report_hz not in USB_REPORT_CODES:
+        raise ValueError(f"Unsupported USB report rate {usb_report_hz}")
+    clean["usb_report_hz"]=usb_report_hz
     # v1/v2 exposed a spurious Office profile for hardware bank 0. If that
     # profile was edited while Game I remained untouched, carry those edits into
     # the real Game I profile so users do not lose their attempted mappings.
@@ -1095,6 +1111,8 @@ class App(tk.Tk):
             name:tk.BooleanVar(value=self.project["lighting"]["colors"][name])
             for name in LIGHTING_COLOR_FIELDS
         }
+        self.cycle_time_var=tk.IntVar(value=self.project["lighting"]["cycle_time"])
+        self.usb_report_var=tk.StringVar(value=f"{self.project['usb_report_hz']} Hz")
         self.connected_var=tk.StringVar(value="Not connected")
         self.active_var=tk.StringVar()
         self.assignment_clipboard=None
@@ -1209,7 +1227,17 @@ class App(tk.Tk):
                 lighting,text=definition["label"],variable=self.lighting_color_vars[name],
                 command=self.lighting_colors_changed,
             ).pack(side="left",padx=3)
+        ttk.Label(lighting,text="Cycle time:").pack(side="left",padx=(14,4))
+        cycle_box=ttk.Combobox(lighting,textvariable=self.cycle_time_var,values=list(range(1,7)),state="readonly",width=3)
+        cycle_box.pack(side="left"); cycle_box.bind("<<ComboboxSelected>>",self.cycle_time_changed)
         ttk.Label(lighting,text="Applies to all profiles").pack(side="right")
+
+        performance=ttk.LabelFrame(self,text="USB report rate",padding=(12,7)); performance.pack(fill="x",padx=16,pady=7)
+        for rate in (125,250,500,1000):
+            label=f"{rate} Hz"
+            ttk.Radiobutton(performance,text=label,value=label,variable=self.usb_report_var,
+                            command=self.usb_report_changed).pack(side="left",padx=(0,18))
+        ttk.Label(performance,text="Applies to all profiles and key descriptors").pack(side="right")
 
         keys=ttk.LabelFrame(self,text="Keys — left-click to configure, right-click to copy, paste, or swap",padding=12)
         keys.pack(fill="x",padx=16,pady=7); self.key_buttons={}
@@ -1254,6 +1282,15 @@ class App(tk.Tk):
         enabled=[definition["label"] for name,definition in LIGHTING_COLOR_FIELDS.items()
                  if self.project["lighting"]["colors"][name]]
         self.status.set("Lighting colors: "+(", ".join(enabled) if enabled else "none"))
+
+    def cycle_time_changed(self,event=None):
+        self.project["lighting"]["cycle_time"]=int(self.cycle_time_var.get())
+        self.status.set(f"Lighting cycle time: {self.cycle_time_var.get()} of 6")
+
+    def usb_report_changed(self):
+        rate=int(self.usb_report_var.get().split()[0])
+        self.project["usb_report_hz"]=rate
+        self.status.set(f"USB report rate: {rate} Hz")
 
     def change_profile(self,direction):
         index=PROFILE_NAMES.index(self.profile_var.get())
@@ -1308,6 +1345,8 @@ class App(tk.Tk):
         prof=self.current_profile()
         mode=self.project.get("lighting",{}).get("mode","cycle_breath")
         self.lighting_var.set(LIGHTING_MODES[mode]["label"])
+        self.cycle_time_var.set(int(self.project.get("lighting",{}).get("cycle_time",4)))
+        self.usb_report_var.set(f"{int(self.project.get('usb_report_hz',500))} Hz")
         colors=self.project.get("lighting",{}).get("colors",{})
         for color,variable in self.lighting_color_vars.items():
             variable.set(bool(colors.get(color,True)))
@@ -1354,6 +1393,7 @@ class App(tk.Tk):
         """Compile the three real onboard profiles as one globally packed image."""
         ptr=OBJECT_START
         capacity=OBJECT_END-OBJECT_START+1
+        report_code=USB_REPORT_CODES[int(self.project.get("usb_report_hz",500))]
         function_images={name:bytearray(9) for name in HARDWARE_PROFILE_NAMES}
         descriptor_images={name:bytearray(90) for name in HARDWARE_PROFILE_NAMES}
         object_writes=[]
@@ -1389,14 +1429,18 @@ class App(tk.Tk):
                             f"Shared object region overflow at {name}, internal switch {internal}.\n"
                             f"Used before object: {ptr-OBJECT_START}; object: {len(obj)}; capacity: {capacity}."
                         )
-                    descriptor_images[name][descriptor_offset:descriptor_offset+10]=make_descriptor(action,ptr,token_count)
+                    descriptor_images[name][descriptor_offset:descriptor_offset+10]=make_descriptor(
+                        action,ptr,token_count,report_code
+                    )
                     object_writes.extend(eight_byte_writes(ptr,obj))
                     compiled_meta[(name,internal)]=(ptr,len(obj))
                     ptr+=len(obj)
                 else:
                     compiled_meta[(name,internal)]=(None,0)
                     if action["type"]=="direct":
-                        descriptor_images[name][descriptor_offset:descriptor_offset+10]=make_descriptor(action,0,None)
+                        descriptor_images[name][descriptor_offset:descriptor_offset+10]=make_descriptor(
+                            action,0,None,report_code
+                        )
 
         function_writes=[]
         descriptor_writes=[]
@@ -1414,14 +1458,19 @@ class App(tk.Tk):
             "descriptor_writes":descriptor_writes,
             "object_writes":object_writes,
             "lighting_writes":[
-                (LIGHTING_ADDRESS,bytes([LIGHTING_MODES[
-                    self.project.get("lighting",{}).get("mode","cycle_breath")
-                ]["value"]])),
+                (LIGHTING_ADDRESS,bytes([
+                    (LIGHTING_MODES[self.project.get("lighting",{}).get("mode","cycle_breath")]["value"] & 0xF8)
+                    | (int(self.project.get("lighting",{}).get("cycle_time",4))-1)
+                ])),
                 (LIGHTING_COLOR_ADDRESS,bytes([sum(
                     1 << definition["shift"]
                     for color,definition in LIGHTING_COLOR_FIELDS.items()
                     if self.project.get("lighting",{}).get("colors",{}).get(color,True)
                 )])),
+            ],
+            "usb_report_writes":[
+                (USB_REPORT_ADDRESS,bytes([report_code])),
+                *((address,bytes([report_code])) for address in USB_REPORT_MIRROR_ADDRESSES),
             ],
             "used_bytes":ptr-OBJECT_START,
             "capacity":capacity,
@@ -1436,7 +1485,8 @@ class App(tk.Tk):
     def all_write_blocks(self,name):
         c=self.compile_profile(name)
         # Match vendor ordering and, critically, its maximum 8-byte memory blocks.
-        blocks=c["function_writes"]+c["lighting_writes"]+c["descriptor_writes"]+c["object_writes"]
+        blocks=(c["function_writes"]+c["lighting_writes"]+c["usb_report_writes"]+
+                c["descriptor_writes"]+c["object_writes"])
         if any(len(data)>8 for _,data in blocks):
             raise AssertionError("Internal error: write plan contains a block larger than 8 bytes")
         return c,blocks

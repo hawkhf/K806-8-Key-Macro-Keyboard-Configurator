@@ -40,6 +40,7 @@ This is an experimental replacement configurator for the 8-key X806/A804F macrop
   Volume+/Volume−, Mute, and LED Loop
 - Capture-verified global lighting modes: Cycle breath and Button response
 - Per-color cycle toggles for Blue, Pink, Red, and Purple
+- Six lighting cycle-time levels and 125/250/500/1000 Hz USB report rates
 - JSON save/load
 - Automatic migration of original MVP project files, validation, and save-time backups
 - Profile copy/reset tools and complete-project validation
@@ -81,6 +82,17 @@ byte, preserving the adjacent vendor settings in the same eight-byte region.
 The four cycle-color selectors are stored at `0x001D` as four two-bit fields.
 The enabled state is `01`: Blue uses bits 1–0, Pink bits 3–2, Red bits 5–4,
 and Purple bits 7–6. All four colors were isolated in controlled captures.
+
+Lighting cycle time shares `0x001C`: the low three bits store the zero-based
+level. Cycle breath uses `0x90–0x95`; Button response uses `0x98–0x9D`.
+Levels 1 and 4 are capture-confirmed, with the intervening values extrapolated
+from the contiguous field.
+
+USB report interval is stored as `(interval_ms - 1)`: 125 Hz=`0x07`,
+250 Hz=`0x03`, 500 Hz=`0x01`, and 1000 Hz=`0x00`. The 125 Hz and 500 Hz values
+are capture-confirmed. The vendor duplicates this value in active descriptor
+headers and six fixed auxiliary descriptor locations, which the configurator
+updates together with the global byte at `0x001E`.
 
 Every memory transaction is split into at most 8 bytes. After all blocks, the app
 sends the vendor-captured `0x10` final-apply command and reset packet; omitting that

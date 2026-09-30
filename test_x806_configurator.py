@@ -174,6 +174,31 @@ class ProtocolTests(unittest.TestCase):
         compiled=x.App.compile_hardware_profiles(app)
         self.assertEqual(compiled["lighting_writes"],[(0x001C,b"\x9b"),(0x001D,b"\x55")])
 
+    def test_minimum_cycle_time_capture(self):
+        app=x.App.__new__(x.App); app.project=x.default_project()
+        app.project["lighting"]["cycle_time"]=1
+        compiled=x.App.compile_hardware_profiles(app)
+        self.assertEqual(dict(compiled["lighting_writes"])[0x001C],b"\x90")
+        app.project["lighting"]["mode"]="button_response"
+        self.assertEqual(dict(x.App.compile_hardware_profiles(app)["lighting_writes"])[0x001C],b"\x98")
+
+    def test_usb_report_125_capture_and_inferred_intervals(self):
+        expected={125:0x07,250:0x03,500:0x01,1000:0x00}
+        for rate,code in expected.items():
+            with self.subTest(rate=rate):
+                app=x.App.__new__(x.App); app.project=x.default_project()
+                app.project["usb_report_hz"]=rate
+                compiled=x.App.compile_hardware_profiles(app)
+                self.assertEqual(dict(compiled["usb_report_writes"])[0x001E],bytes([code]))
+                self.assertTrue(all(data==bytes([code]) for _,data in compiled["usb_report_writes"]))
+                descriptor_bytes={}
+                for address,data in compiled["descriptor_writes"]:
+                    for offset,value in enumerate(data): descriptor_bytes[address+offset]=value
+                for profile in x.PROFILE_NAMES:
+                    base=x.PROFILE_BANKS[profile]["descriptor_base"]
+                    for internal in (1,2,3,4,5,6,7,9):
+                        self.assertEqual(descriptor_bytes[base+(internal-1)*10],code)
+
     def test_lighting_color_toggle_captures(self):
         expected={"blue":0x54,"pink":0x51,"red":0x45,"purple":0x15}
         for color,value in expected.items():
@@ -190,14 +215,16 @@ class ProtocolTests(unittest.TestCase):
         migrated=x.normalize_project(project)
         self.assertEqual(migrated["lighting"],{
             "mode":"cycle_breath",
+            "cycle_time":4,
             "colors":{"blue":True,"pink":True,"red":True,"purple":True},
         })
+        self.assertEqual(migrated["usb_report_hz"],500)
 
     def test_successful_upload_record_is_persistent_and_recoverable(self):
         app=x.App.__new__(x.App); app.project=x.default_project()
         app.project["profiles"]["Game III"]["1"]={"type":"key","usage":x.HID_KEYS["Z"]}
         compiled=x.App.compile_hardware_profiles(app)
-        blocks=(compiled["function_writes"]+compiled["lighting_writes"]+
+        blocks=(compiled["function_writes"]+compiled["lighting_writes"]+compiled["usb_report_writes"]+
                 compiled["descriptor_writes"]+compiled["object_writes"])
         moment=datetime(2026,9,30,12,34,56,789012,tzinfo=timezone.utc)
         record=x.build_upload_record(
