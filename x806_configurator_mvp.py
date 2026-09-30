@@ -89,7 +89,7 @@ OBJECT_START = 0x0400
 # Highest byte positively observed in the supplied vendor captures (macro test3).
 OBJECT_END = 0x0547
 PROJECT_FORMAT = "x806-configurator-project"
-PROJECT_VERSION = 4
+PROJECT_VERSION = 5
 UPLOAD_LOG_FORMAT = "x806-upload-record"
 UPLOAD_LOG_VERSION = 1
 VENDOR_CONFIG_CANDIDATES = [
@@ -143,6 +143,15 @@ LIGHTING_MODES={
 }
 LIGHTING_LABELS={value["label"]:key for key,value in LIGHTING_MODES.items()}
 LIGHTING_ADDRESS=0x001C
+LIGHTING_COLOR_ADDRESS=0x001D
+# 0x55 is four 2-bit fields set to 01. Controlled captures identify Blue,
+# Pink, Red, and Purple independently.
+LIGHTING_COLOR_FIELDS = {
+    "blue": {"label":"Blue", "shift":0, "verified":True},
+    "pink": {"label":"Pink", "shift":2, "verified":True},
+    "red": {"label":"Red", "shift":4, "verified":True},
+    "purple": {"label":"Purple", "shift":6, "verified":True},
+}
 
 # HID Keyboard/Keypad Usage IDs.
 HID_KEYS = {
@@ -376,7 +385,10 @@ def default_project():
     return {
         "format":PROJECT_FORMAT,
         "version":PROJECT_VERSION,
-        "lighting":{"mode":"cycle_breath"},
+        "lighting":{
+            "mode":"cycle_breath",
+            "colors":{name:True for name in LIGHTING_COLOR_FIELDS},
+        },
         "profiles": {name: default_profile() for name in PROFILE_NAMES},
     }
 
@@ -396,7 +408,16 @@ def normalize_project(data):
     lighting_mode=(lighting or {}).get("mode","cycle_breath")
     if lighting_mode not in LIGHTING_MODES:
         raise ValueError(f"Unknown lighting mode {lighting_mode!r}")
-    clean["lighting"]={"mode":lighting_mode}
+    source_colors=(lighting or {}).get("colors",{})
+    if source_colors is not None and not isinstance(source_colors,dict):
+        raise ValueError("Project lighting colors must be an object")
+    clean["lighting"]={
+        "mode":lighting_mode,
+        "colors":{
+            name:bool((source_colors or {}).get(name,True))
+            for name in LIGHTING_COLOR_FIELDS
+        },
+    }
     # v1/v2 exposed a spurious Office profile for hardware bank 0. If that
     # profile was edited while Game I remained untouched, carry those edits into
     # the real Game I profile so users do not lose their attempted mappings.
@@ -1070,6 +1091,10 @@ class App(tk.Tk):
         self.active_profile,self.vendor_config_path=detect_vendor_active_profile()
         self.profile_var=tk.StringVar(value="Game I")
         self.lighting_var=tk.StringVar(value=LIGHTING_MODES[self.project["lighting"]["mode"]]["label"])
+        self.lighting_color_vars={
+            name:tk.BooleanVar(value=self.project["lighting"]["colors"][name])
+            for name in LIGHTING_COLOR_FIELDS
+        }
         self.connected_var=tk.StringVar(value="Not connected")
         self.active_var=tk.StringVar()
         self.assignment_clipboard=None
@@ -1178,6 +1203,12 @@ class App(tk.Tk):
         lighting=ttk.LabelFrame(self,text="Lighting",padding=(12,7)); lighting.pack(fill="x",padx=16,pady=7)
         for label in LIGHTING_LABELS:
             ttk.Radiobutton(lighting,text=label,value=label,variable=self.lighting_var,command=self.lighting_changed).pack(side="left",padx=(0,18))
+        ttk.Label(lighting,text="Colors:").pack(side="left",padx=(12,4))
+        for name,definition in LIGHTING_COLOR_FIELDS.items():
+            ttk.Checkbutton(
+                lighting,text=definition["label"],variable=self.lighting_color_vars[name],
+                command=self.lighting_colors_changed,
+            ).pack(side="left",padx=3)
         ttk.Label(lighting,text="Applies to all profiles").pack(side="right")
 
         keys=ttk.LabelFrame(self,text="Keys — left-click to configure, right-click to copy, paste, or swap",padding=12)
@@ -1214,7 +1245,15 @@ class App(tk.Tk):
 
     def lighting_changed(self):
         mode=LIGHTING_LABELS[self.lighting_var.get()]
-        self.project["lighting"]={"mode":mode}; self.status.set(f"Lighting set to {self.lighting_var.get()}")
+        self.project["lighting"]["mode"]=mode; self.status.set(f"Lighting set to {self.lighting_var.get()}")
+
+    def lighting_colors_changed(self):
+        self.project["lighting"]["colors"]={
+            name:variable.get() for name,variable in self.lighting_color_vars.items()
+        }
+        enabled=[definition["label"] for name,definition in LIGHTING_COLOR_FIELDS.items()
+                 if self.project["lighting"]["colors"][name]]
+        self.status.set("Lighting colors: "+(", ".join(enabled) if enabled else "none"))
 
     def change_profile(self,direction):
         index=PROFILE_NAMES.index(self.profile_var.get())
@@ -1269,6 +1308,9 @@ class App(tk.Tk):
         prof=self.current_profile()
         mode=self.project.get("lighting",{}).get("mode","cycle_breath")
         self.lighting_var.set(LIGHTING_MODES[mode]["label"])
+        colors=self.project.get("lighting",{}).get("colors",{})
+        for color,variable in self.lighting_color_vars.items():
+            variable.set(bool(colors.get(color,True)))
         self.active_var.set("The keyboard's active profile cannot be read")
         self.profile_note.configure(text=f"Editing onboard profile {PROFILE_NAMES.index(name)+1} of {len(PROFILE_NAMES)}")
         self.upload_button.configure(state="normal",text="Apply all profiles")
@@ -1371,9 +1413,16 @@ class App(tk.Tk):
             "function_writes":function_writes,
             "descriptor_writes":descriptor_writes,
             "object_writes":object_writes,
-            "lighting_writes":[(LIGHTING_ADDRESS,bytes([LIGHTING_MODES[
-                self.project.get("lighting",{}).get("mode","cycle_breath")
-            ]["value"]]))],
+            "lighting_writes":[
+                (LIGHTING_ADDRESS,bytes([LIGHTING_MODES[
+                    self.project.get("lighting",{}).get("mode","cycle_breath")
+                ]["value"]])),
+                (LIGHTING_COLOR_ADDRESS,bytes([sum(
+                    1 << definition["shift"]
+                    for color,definition in LIGHTING_COLOR_FIELDS.items()
+                    if self.project.get("lighting",{}).get("colors",{}).get(color,True)
+                )])),
+            ],
             "used_bytes":ptr-OBJECT_START,
             "capacity":capacity,
             "meta":compiled_meta,

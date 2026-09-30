@@ -39,6 +39,7 @@ This is an experimental replacement configurator for the 8-key X806/A804F macrop
   DPI loop/+/−, switch to Game I/II/III, Previous/Next, Play/Pause,
   Volume+/Volume−, Mute, and LED Loop
 - Capture-verified global lighting modes: Cycle breath and Button response
+- Per-color cycle toggles for Blue, Pink, Red, and Purple
 - JSON save/load
 - Automatic migration of original MVP project files, validation, and save-time backups
 - Profile copy/reset tools and complete-project validation
@@ -76,6 +77,10 @@ single image, matching the vendor allocator.
 The global lighting mode is stored at `0x001C`. Controlled captures confirmed
 `0x93` for Cycle breath and `0x9B` for Button response. The app writes only that
 byte, preserving the adjacent vendor settings in the same eight-byte region.
+
+The four cycle-color selectors are stored at `0x001D` as four two-bit fields.
+The enabled state is `01`: Blue uses bits 1–0, Pink bits 3–2, Red bits 5–4,
+and Purple bits 7–6. All four colors were isolated in controlled captures.
 
 Every memory transaction is split into at most 8 bytes. After all blocks, the app
 sends the vendor-captured `0x10` final-apply command and reset packet; omitting that

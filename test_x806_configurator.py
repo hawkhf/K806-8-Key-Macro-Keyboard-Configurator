@@ -169,17 +169,29 @@ class ProtocolTests(unittest.TestCase):
     def test_lighting_capture_byte(self):
         app=x.App.__new__(x.App); app.project=x.default_project()
         compiled=x.App.compile_hardware_profiles(app)
-        self.assertEqual(compiled["lighting_writes"],[(0x001C,b"\x93")])
+        self.assertEqual(compiled["lighting_writes"],[(0x001C,b"\x93"),(0x001D,b"\x55")])
         app.project["lighting"]["mode"]="button_response"
         compiled=x.App.compile_hardware_profiles(app)
-        self.assertEqual(compiled["lighting_writes"],[(0x001C,b"\x9b")])
+        self.assertEqual(compiled["lighting_writes"],[(0x001C,b"\x9b"),(0x001D,b"\x55")])
+
+    def test_lighting_color_toggle_captures(self):
+        expected={"blue":0x54,"pink":0x51,"red":0x45,"purple":0x15}
+        for color,value in expected.items():
+            with self.subTest(color=color):
+                app=x.App.__new__(x.App); app.project=x.default_project()
+                app.project["lighting"]["colors"][color]=False
+                compiled=x.App.compile_hardware_profiles(app)
+                self.assertEqual(dict(compiled["lighting_writes"])[0x001D],bytes([value]))
 
     def test_old_project_gets_default_lighting(self):
         project=x.default_project()
         project.pop("lighting")
         project["version"]=3
         migrated=x.normalize_project(project)
-        self.assertEqual(migrated["lighting"],{"mode":"cycle_breath"})
+        self.assertEqual(migrated["lighting"],{
+            "mode":"cycle_breath",
+            "colors":{"blue":True,"pink":True,"red":True,"purple":True},
+        })
 
     def test_successful_upload_record_is_persistent_and_recoverable(self):
         app=x.App.__new__(x.App); app.project=x.default_project()
