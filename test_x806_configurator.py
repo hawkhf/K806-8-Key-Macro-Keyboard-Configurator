@@ -166,6 +166,40 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(bytes(descriptors[0x00D2+i] for i in range(10)),x.DIRECT_ACTIONS["next"]["descriptor"])
         self.assertEqual(bytes(descriptors[0x00F0+i] for i in range(10)),x.DIRECT_ACTIONS["previous"]["descriptor"])
 
+    def test_button_test_capture_reconstruction_and_dynamic_direct_pointers(self):
+        app=x.App.__new__(x.App); app.project=x.default_project()
+        direct={1:"mail",4:"player",5:"calculator",7:"browser",8:"show_desktop"}
+        macros={2:"Lock PC",3:"Close window",6:"My computer"}
+        for physical,action in direct.items():
+            app.project["profiles"]["Game I"][str(physical)]={"type":"direct","action":action}
+        for physical,preset in macros.items():
+            app.project["profiles"]["Game I"][str(physical)]={
+                "type":"macro","events":x.macro_preset_events(preset),
+            }
+        compiled=x.App.compile_hardware_profiles(app)
+        functions=dict(compiled["function_writes"])
+        self.assertEqual(functions[0x0008],bytes.fromhex("2f 2d 2d 27 2f 2d 2f 00"))
+        self.assertEqual(functions[0x0010],b"\x2f")
+        descriptors={}
+        for address,data in compiled["descriptor_writes"]:
+            for offset,value in enumerate(data): descriptors[address+offset]=value
+        expected={
+            0x00A0:"01 00 00 83 01 00 04 00 00 00",
+            0x00AA:"01 04 00 00 00 00 04 00 0a 00",
+            0x00B4:"01 04 00 00 00 10 04 00 0a 00",
+            0x00BE:"00 00 00 00 00 00 00 00 00 00",
+            0x00C8:"01 00 00 23 02 20 04 00 00 00",
+            0x00D2:"01 04 00 00 00 20 04 00 0a 00",
+            0x00DC:"01 00 00 8a 01 30 04 00 00 00",
+            0x00F0:"01 00 00 92 01 30 04 00 00 00",
+        }
+        for address,hex_bytes in expected.items():
+            with self.subTest(address=hex(address)):
+                self.assertEqual(bytes(descriptors[address+i] for i in range(10)),bytes.fromhex(hex_bytes))
+        self.assertEqual(compiled["meta"][("Game I",2)],(0x0400,16))
+        self.assertEqual(compiled["meta"][("Game I",3)],(0x0410,16))
+        self.assertEqual(compiled["meta"][("Game I",6)],(0x0420,16))
+
     def test_lighting_capture_byte(self):
         app=x.App.__new__(x.App); app.project=x.default_project()
         compiled=x.App.compile_hardware_profiles(app)

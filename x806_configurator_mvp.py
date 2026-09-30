@@ -126,12 +126,18 @@ DIRECT_ACTIONS = {
     "mute":{"label":"Media: Mute","primary":0x2F,"descriptor":bytes.fromhex("01 00 00 E2 00 00 04 00 00 00")},
     "previous":{"label":"Media: Previous","primary":0x2F,"descriptor":bytes.fromhex("01 00 00 B6 00 00 04 00 00 00")},
     "next":{"label":"Media: Next","primary":0x2F,"descriptor":bytes.fromhex("01 00 00 B5 00 00 04 00 00 00")},
+    "player":{"label":"Application: Media player","primary":0x2F,"descriptor":bytes.fromhex("01 00 00 83 01 00 04 00 00 00")},
+    "mail":{"label":"Application: Mail","primary":0x2F,"descriptor":bytes.fromhex("01 00 00 8A 01 00 04 00 00 00")},
+    "calculator":{"label":"Application: Calculator","primary":0x2F,"descriptor":bytes.fromhex("01 00 00 92 01 00 04 00 00 00")},
+    "browser":{"label":"Application: Browser","primary":0x2F,"descriptor":bytes.fromhex("01 00 00 23 02 00 04 00 00 00")},
+    "show_desktop":{"label":"Desktop: Show desktop","primary":0x27},
     "led_loop":{"label":"LED Loop","primary":0x35},
     "dpi_plus":{"label":"DPI +","primary":0x2B},
 }
 DIRECT_ACTION_GROUPS = {
     "Mouse":["left_mouse","middle_mouse","right_mouse","double_click","fire"],
     "Media":["play_pause","previous","next","volume_up","volume_down","mute"],
+    "Applications":["player","mail","calculator","browser","show_desktop"],
     "Profiles":["switch_game_i","switch_game_ii","switch_game_iii"],
     "DPI and lighting":["dpi_loop","dpi_plus","dpi_minus","led_loop"],
 }
@@ -323,13 +329,14 @@ def macro_preset_events(name):
         "Undo":(["Left Ctrl"],"Z"),"Redo":(["Left Ctrl"],"Y"),"Select all":(["Left Ctrl"],"A"),
         "Find":(["Left Ctrl"],"F"),"Save":(["Left Ctrl"],"S"),"Close window":(["Left Alt"],"F4"),
         "Show desktop":(["Left Win"],"D"),"Lock PC":(["Left Win"],"L"),"Run dialog":(["Left Win"],"R"),
+        "My computer":(["Left Win"],"E"),
     }
     if name in chords: return chord_events(*chords[name])
     if name=="Calculator":
         return chord_events(["Left Win"],"R") + [{"type":"delay","ms":250}] + text_to_events("calc",20) + chord_events([],"Enter")
     raise ValueError(f"Unknown macro preset: {name}")
 
-MACRO_PRESETS=["Copy","Paste","Cut","Undo","Redo","Select all","Find","Save","Close window","Show desktop","Lock PC","Run dialog","Calculator"]
+MACRO_PRESETS=["Copy","Paste","Cut","Undo","Redo","Select all","Find","Save","Close window","Show desktop","Lock PC","My computer","Run dialog","Calculator"]
 
 def compile_macro(events):
     """
@@ -376,7 +383,15 @@ def make_descriptor(action, ptr, macro_tokens=None, report_code=0x01):
         return bytes([report_code,macro_tokens & 0xFF,0,0,0,lo,hi,0,0x0A,0])
     if action["type"] == "direct":
         descriptor=DIRECT_ACTIONS[action["action"]].get("descriptor",b"\x00"*10)
-        return bytes([report_code])+descriptor[1:] if any(descriptor) else descriptor
+        if not any(descriptor):
+            return descriptor
+        # The vendor stores the current shared-object allocation pointer even
+        # for direct HID-consumer actions, which do not allocate an object.
+        # This becomes observable when a direct action follows a macro.
+        result=bytearray(descriptor)
+        result[0]=report_code
+        result[5:7]=bytes([lo,hi])
+        return bytes(result)
     if action["type"] in ("game2","raw"):
         return b"\x00" * 10
     raise ValueError("Unsupported action type")
@@ -1439,7 +1454,7 @@ class App(tk.Tk):
                     compiled_meta[(name,internal)]=(None,0)
                     if action["type"]=="direct":
                         descriptor_images[name][descriptor_offset:descriptor_offset+10]=make_descriptor(
-                            action,0,None,report_code
+                            action,ptr,None,report_code
                         )
 
         function_writes=[]

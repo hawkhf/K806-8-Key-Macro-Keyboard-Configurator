@@ -26,7 +26,7 @@ This is an experimental replacement configurator for the 8-key X806/A804F macrop
   - multi-select move/delete and Clear all
   - Ctrl+C / Ctrl+V / Ctrl+Shift+S / Win+R helpers
 - Built-in shortcut presets: Copy, Paste, Cut, Undo, Redo, Select All, Find,
-  Save, Close Window, Show Desktop, Lock PC, Run dialog, and Calculator
+  Save, Close Window, Show Desktop, Lock PC, My Computer, Run dialog, and Calculator
 - Left/right Ctrl, Shift, Alt, and Win modifier usages
 - Grouped, double-click action assignment for keyboard, mouse, media, profile,
   DPI, lighting, and macro actions
@@ -37,7 +37,8 @@ This is an experimental replacement configurator for the 8-key X806/A804F macrop
 - Confirmed direct `Switch → Game II` action
 - Capture-verified direct functions: left/middle/right mouse, double click, fire,
   DPI loop/+/−, switch to Game I/II/III, Previous/Next, Play/Pause,
-  Volume+/Volume−, Mute, and LED Loop
+  Volume+/Volume−, Mute, LED Loop, Media Player, Mail, Calculator, Browser,
+  and Show Desktop
 - Capture-verified global lighting modes: Cycle breath and Button response
 - Per-color cycle toggles for Blue, Pink, Red, and Purple
 - Six lighting cycle-time levels and 125/250/500/1000 Hz USB report rates
@@ -74,6 +75,10 @@ All three profiles use one globally packed extended-object region beginning at
 `0x0400`. The supplied captures positively exercise the region through `0x0547`.
 The configurator therefore compiles and uploads all three hardware profiles as a
 single image, matching the vendor allocator.
+
+Direct consumer-control descriptors also store the allocator's current address,
+even though they do not consume object space. This pointer is generated dynamically
+so application and media actions remain valid when they follow macros.
 
 The global lighting mode is stored at `0x001C`. Controlled captures confirmed
 `0x93` for Cycle breath and `0x9B` for Button response. The app writes only that
@@ -139,6 +144,23 @@ Macros are stored as:
     <2-byte tokens...>
     00 00
     <zero padding to 8-byte boundary>
+
+## Captured input reports
+
+The configured application buttons produce ordinary HID input reports rather
+than a vendor-specific runtime protocol. A controlled key-press capture confirmed:
+
+- Media Player: Consumer usage `0x0183`
+- Calculator: Consumer usage `0x0192`
+- Browser/Home: Consumer usage `0x0223`
+- Lock PC: Left Win + L
+- Close Window: Left Alt + F4
+- My Computer: Left Win + E
+- Show Desktop: Left Win + D (the device's dedicated `0x27` action)
+
+Mail's configuration descriptor contains Consumer usage `0x018A`; its press was
+not present in the supplied input capture, but the binding itself is confirmed by
+the vendor configuration write.
 
 ## Protocol research tools
 
