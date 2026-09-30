@@ -338,7 +338,7 @@ def macro_preset_events(name):
 
 MACRO_PRESETS=["Copy","Paste","Cut","Undo","Redo","Select all","Find","Save","Close window","Show desktop","Lock PC","My computer","Run dialog","Calculator"]
 
-def launch_command_events(command,inter_key_ms=10,run_delay_ms=300):
+def launch_command_events(command,inter_key_ms=0,run_delay_ms=300):
     """Build a Windows Run macro for a pasted command, URI, or executable path."""
     command=command.strip()
     if not command:
@@ -346,7 +346,7 @@ def launch_command_events(command,inter_key_ms=10,run_delay_ms=300):
     return (chord_events(["Left Win"],"R") + [{"type":"delay","ms":int(run_delay_ms)}] +
             text_to_events(command,int(inter_key_ms)) + chord_events([],"Enter"))
 
-def type_string_events(value,inter_key_ms=10):
+def type_string_events(value,inter_key_ms=0):
     """Build a plain text macro without opening the Windows Run dialog."""
     return text_to_events(value,int(inter_key_ms))
 
@@ -492,7 +492,7 @@ def normalize_project(data):
                 if isinstance(macro_source,dict) and macro_source.get("kind") in ("launch","text") and isinstance(macro_source.get("text"),str):
                     macro_action["source"]={
                         "kind":macro_source["kind"],"text":macro_source["text"],
-                        "inter_key_ms":max(0,int(macro_source.get("inter_key_ms",10))),
+                        "inter_key_ms":max(0,int(macro_source.get("inter_key_ms",0))),
                     }
                 clean["profiles"][profile_name][str(physical)] = macro_action
             elif kind == "game2":
@@ -999,8 +999,8 @@ class ActionEditor(tk.Toplevel):
         self.capture_status=tk.StringVar(value="Focus here and press a key to assign it immediately")
         self.builder_source=self.action.get("source",{})
         self.launch_command=tk.StringVar(value=self.builder_source.get("text","") if self.builder_source.get("kind")=="launch" else "")
-        self.launch_delay=tk.StringVar(value=str(self.builder_source.get("inter_key_ms",10) if self.builder_source.get("kind")=="launch" else 10))
-        self.text_delay=tk.StringVar(value=str(self.builder_source.get("inter_key_ms",10) if self.builder_source.get("kind")=="text" else 10))
+        self.launch_delay=tk.StringVar(value=str(self.builder_source.get("inter_key_ms",0) if self.builder_source.get("kind")=="launch" else 0))
+        self.text_delay=tk.StringVar(value=str(self.builder_source.get("inter_key_ms",0) if self.builder_source.get("kind")=="text" else 0))
         self.builder_info=tk.StringVar(value="")
         self.direct_groups=list(DIRECT_ACTION_GROUPS); self._build(); self.show_current(); self.protocol("WM_DELETE_WINDOW",self.cancel)
     @property
@@ -1038,6 +1038,7 @@ class ActionEditor(tk.Toplevel):
         ttk.Label(options,text="Delay between typed keys:").pack(side="left")
         ttk.Entry(options,textvariable=self.launch_delay,width=6).pack(side="left",padx=(5,2))
         ttk.Label(options,text="ms").pack(side="left")
+        ttk.Label(options,text="(0 ms recommended; delays use macro memory)").pack(side="left",padx=10)
         self.launch_delay.trace_add("write",lambda *_:self.update_builder_info())
         ttk.Label(
             launch,text='Examples:  notepad     steam://open/main     "C:\\Program Files\\Example\\App.exe"',
@@ -1058,6 +1059,7 @@ class ActionEditor(tk.Toplevel):
         ttk.Label(text_options,text="Delay between typed keys:").pack(side="left")
         ttk.Entry(text_options,textvariable=self.text_delay,width=6).pack(side="left",padx=(5,2))
         ttk.Label(text_options,text="ms").pack(side="left")
+        ttk.Label(text_options,text="(0 ms recommended)").pack(side="left",padx=10)
         ttk.Label(text_options,textvariable=self.builder_info).pack(side="right")
         self.text_delay.trace_add("write",lambda *_:self.update_builder_info())
 
@@ -1104,7 +1106,8 @@ class ActionEditor(tk.Toplevel):
     def capture_key(self,event):
         usage=tkinter_event_usage(event)
         if usage is None: self.capture_status.set(f"{event.keysym} is not supported"); return "break"
-        self.on_save({"type":"key","usage":usage}); self.cancel(); return "break"
+        if self.on_save({"type":"key","usage":usage}) is False: return "break"
+        self.cancel(); return "break"
     def show_current(self):
         kind=self.action.get("type")
         source=self.action.get("source",{})
@@ -1143,7 +1146,8 @@ class ActionEditor(tk.Toplevel):
             try: compile_macro(events)
             except Exception as exc: messagebox.showerror("Macro",str(exc),parent=self); return
             result={"type":"macro","events":events}
-        self.on_save(result); self.destroy()
+        if self.on_save(result) is False: return
+        self.destroy()
 
 class ProtocolLab(tk.Toplevel):
     """Read-only device checks and offline command-0x18 capture analysis."""
@@ -1424,11 +1428,27 @@ class App(tk.Tk):
         self.assignment_clipboard=self.clone_action(self.current_profile()[str(physical)])
         self.status.set(f"Copied {self.profile_var.get()} key {physical}: {action_label(self.assignment_clipboard)}")
 
+    def set_key_assignment(self,physical,action):
+        profile=self.current_profile(); previous=self.clone_action(profile[str(physical)])
+        profile[str(physical)]=self.clone_action(action)
+        try:
+            self.compile_hardware_profiles()
+        except Exception as exc:
+            profile[str(physical)]=previous
+            messagebox.showerror(
+                "Assignment does not fit",
+                f"This assignment was not saved because the complete three-profile configuration does not fit.\n\n{exc}",
+                parent=self,
+            )
+            return False
+        self.refresh_buttons()
+        return True
+
     def paste_key_assignment(self,physical):
         if self.assignment_clipboard is None: return
         self.context_key=physical
-        self.current_profile()[str(physical)]=self.clone_action(self.assignment_clipboard)
-        self.refresh_buttons(); self.status.set(f"Pasted assignment onto {self.profile_var.get()} key {physical}")
+        if self.set_key_assignment(physical,self.assignment_clipboard):
+            self.status.set(f"Pasted assignment onto {self.profile_var.get()} key {physical}")
 
     def swap_key_assignments(self,first,second):
         if first==second: return
@@ -1489,7 +1509,9 @@ class App(tk.Tk):
         self.context_key=n
         prof=self.current_profile()
         def done(a):
-            prof[str(n)]=a; self.refresh_buttons()
+            if not self.set_key_assignment(n,a): return False
+            self.status.set(f"Configured {self.profile_var.get()} key {n}: {action_label(a)}")
+            return True
         ActionEditor(self,prof[str(n)],done,n,self.profile_var.get())
 
     def reset_profile(self):
@@ -1544,9 +1566,18 @@ class App(tk.Tk):
                 descriptor_offset=(internal-1)*10
                 if obj is not None:
                     if ptr+len(obj)-1>OBJECT_END:
+                        source=action.get("source",{})
+                        hint=""
+                        if source.get("kind") in ("launch","text"):
+                            if int(source.get("inter_key_ms",0))>0:
+                                hint=("\n\nThis generated action adds a delay between every character. Reopen it and set "
+                                      "Delay between typed keys to 0 ms; this usually saves enough space.")
+                            else:
+                                hint=("\n\nThis generated action already uses 0 ms character delay. Use a shorter Run "
+                                      "command or create a short Windows alias/shortcut for the path.")
                         raise ValueError(
                             f"Shared object region overflow at {name}, internal switch {internal}.\n"
-                            f"Used before object: {ptr-OBJECT_START}; object: {len(obj)}; capacity: {capacity}."
+                            f"Used before object: {ptr-OBJECT_START}; object: {len(obj)}; capacity: {capacity}."+hint
                         )
                     descriptor_images[name][descriptor_offset:descriptor_offset+10]=make_descriptor(
                         action,ptr,token_count,report_code

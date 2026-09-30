@@ -37,6 +37,8 @@ This is an experimental replacement configurator for the 8-key X806/A804F macrop
   the configurator generates Win+R, typing, and Enter automatically
 - Type text builder: paste a string or multiple lines to type directly without
   opening the Windows Run dialog
+- Launch app and Type text default to a memory-efficient 0 ms inter-key delay;
+  longer delays consume one additional firmware token between every character
 - Previous/next profile arrows (also Ctrl+Page Up / Ctrl+Page Down)
 - Confirmed direct `Switch → Game II` action
 - Capture-verified direct functions: left/middle/right mouse, double click, fire,

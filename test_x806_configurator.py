@@ -18,6 +18,12 @@ class ProtocolTests(unittest.TestCase):
         self.assertGreater(tokens,10)
         self.assertEqual(len(raw)%8,0)
 
+    def test_launch_builder_defaults_to_memory_efficient_typing(self):
+        command=r'"C:\Program Files\Example\App.exe"'
+        compact_raw,_=x.compile_macro(x.launch_command_events(command))
+        delayed_raw,_=x.compile_macro(x.launch_command_events(command,inter_key_ms=10))
+        self.assertLess(len(compact_raw),len(delayed_raw))
+
     def test_type_string_builder_does_not_add_run_shortcut(self):
         events=x.type_string_events("Hello!",inter_key_ms=5)
         usages={event.get("usage") for event in events if "usage" in event}
