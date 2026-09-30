@@ -9,6 +9,31 @@ import x806_configurator_mvp as x
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_launch_command_builder_wraps_pasted_command(self):
+        events=x.launch_command_events(r'"C:\Program Files\Example\App.exe"',inter_key_ms=10)
+        self.assertEqual(events[:4],x.chord_events(["Left Win"],"R"))
+        self.assertEqual(events[4],{"type":"delay","ms":300})
+        self.assertEqual(events[-2:],x.chord_events([],"Enter"))
+        raw,tokens=x.compile_macro(events)
+        self.assertGreater(tokens,10)
+        self.assertEqual(len(raw)%8,0)
+
+    def test_type_string_builder_does_not_add_run_shortcut(self):
+        events=x.type_string_events("Hello!",inter_key_ms=5)
+        usages={event.get("usage") for event in events if "usage" in event}
+        self.assertNotIn(x.HID_KEYS["Left Win"],usages)
+        x.compile_macro(events)
+
+    def test_macro_builder_source_survives_project_normalization(self):
+        project=x.default_project()
+        events=x.launch_command_events("notepad")
+        project["profiles"]["Game I"]["1"]={
+            "type":"macro","events":events,
+            "source":{"kind":"launch","text":"notepad","inter_key_ms":10},
+        }
+        normalized=x.normalize_project(project)
+        self.assertEqual(normalized["profiles"]["Game I"]["1"]["source"]["text"],"notepad")
+
     def test_friendly_action_groups_cover_every_verified_action_once(self):
         grouped=[action for actions in x.DIRECT_ACTION_GROUPS.values() for action in actions]
         self.assertEqual(len(grouped),len(set(grouped)))

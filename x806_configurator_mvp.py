@@ -338,6 +338,18 @@ def macro_preset_events(name):
 
 MACRO_PRESETS=["Copy","Paste","Cut","Undo","Redo","Select all","Find","Save","Close window","Show desktop","Lock PC","My computer","Run dialog","Calculator"]
 
+def launch_command_events(command,inter_key_ms=10,run_delay_ms=300):
+    """Build a Windows Run macro for a pasted command, URI, or executable path."""
+    command=command.strip()
+    if not command:
+        raise ValueError("Enter a command or application path")
+    return (chord_events(["Left Win"],"R") + [{"type":"delay","ms":int(run_delay_ms)}] +
+            text_to_events(command,int(inter_key_ms)) + chord_events([],"Enter"))
+
+def type_string_events(value,inter_key_ms=10):
+    """Build a plain text macro without opening the Windows Run dialog."""
+    return text_to_events(value,int(inter_key_ms))
+
 def compile_macro(events):
     """
     Event token format confirmed by controlled capture:
@@ -475,7 +487,14 @@ def normalize_project(data):
                 if not isinstance(events, list):
                     raise ValueError(f"{profile_name} key {physical} has an invalid macro")
                 compile_macro(events)
-                clean["profiles"][profile_name][str(physical)] = {"type":"macro", "events":[dict(e) for e in events]}
+                macro_action={"type":"macro", "events":[dict(e) for e in events]}
+                macro_source=action.get("source")
+                if isinstance(macro_source,dict) and macro_source.get("kind") in ("launch","text") and isinstance(macro_source.get("text"),str):
+                    macro_action["source"]={
+                        "kind":macro_source["kind"],"text":macro_source["text"],
+                        "inter_key_ms":max(0,int(macro_source.get("inter_key_ms",10))),
+                    }
+                clean["profiles"][profile_name][str(physical)] = macro_action
             elif kind == "game2":
                 clean["profiles"][profile_name][str(physical)] = {"type":"direct","action":"switch_game_ii"}
             elif kind == "direct":
@@ -588,6 +607,13 @@ def action_label(action):
     if t == "key":
         return HID_NAMES.get(action.get("usage"), f"HID 0x{action.get('usage',0):02X}")
     if t == "macro":
+        source=action.get("source",{})
+        if source.get("kind")=="launch":
+            command=source.get("text","")
+            return f"Launch: {command[:22]}{'…' if len(command)>22 else ''}"
+        if source.get("kind")=="text":
+            value=source.get("text","").replace("\n","↵")
+            return f"Text: {value[:24]}{'…' if len(value)>24 else ''}"
         evs = action.get("events",[])
         return f"Macro ({len(evs)} events)"
     if t == "direct":
@@ -971,9 +997,18 @@ class ActionEditor(tk.Toplevel):
         self.title(f"Assign key {physical} — {profile}"); self.geometry("920x720"); self.minsize(840,630)
         self.transient(parent); self.grab_set(); self.key_search=tk.StringVar(); self.key_names=list(HID_KEYS)
         self.capture_status=tk.StringVar(value="Focus here and press a key to assign it immediately")
+        self.builder_source=self.action.get("source",{})
+        self.launch_command=tk.StringVar(value=self.builder_source.get("text","") if self.builder_source.get("kind")=="launch" else "")
+        self.launch_delay=tk.StringVar(value=str(self.builder_source.get("inter_key_ms",10) if self.builder_source.get("kind")=="launch" else 10))
+        self.text_delay=tk.StringVar(value=str(self.builder_source.get("inter_key_ms",10) if self.builder_source.get("kind")=="text" else 10))
+        self.builder_info=tk.StringVar(value="")
         self.direct_groups=list(DIRECT_ACTION_GROUPS); self._build(); self.show_current(); self.protocol("WM_DELETE_WINDOW",self.cancel)
     @property
-    def macro_tab(self): return 1+len(self.direct_groups)
+    def launch_tab(self): return 1+len(self.direct_groups)
+    @property
+    def text_tab(self): return self.launch_tab+1
+    @property
+    def macro_tab(self): return self.launch_tab+2
     def _build(self):
         frame=ttk.Frame(self,padding=14); frame.pack(fill="both",expand=True)
         ttk.Label(frame,text=f"What should key {self.physical} do?",style="Title.TLabel").pack(anchor="w")
@@ -993,12 +1028,46 @@ class ActionEditor(tk.Toplevel):
             listing=tk.Listbox(tab,exportselection=False); listing.pack(fill="both",expand=True)
             for action in DIRECT_ACTION_GROUPS[group]: listing.insert("end",DIRECT_ACTIONS[action]["label"])
             listing.bind("<Double-1>",lambda e:self.apply()); self.direct_lists[group]=listing
+
+        launch=ttk.Frame(self.tabs,padding=16); self.tabs.add(launch,text="Launch app")
+        ttk.Label(launch,text="Paste a Windows Run command, URI, or full executable path.",style="Subtitle.TLabel").pack(anchor="w")
+        ttk.Label(launch,text="The key will press Win+R, type this value, and press Enter.").pack(anchor="w",pady=(2,12))
+        self.launch_entry=ttk.Entry(launch,textvariable=self.launch_command,font=("Consolas",10))
+        self.launch_entry.pack(fill="x",pady=(0,10)); self.launch_command.trace_add("write",lambda *_:self.update_builder_info())
+        options=ttk.Frame(launch); options.pack(fill="x")
+        ttk.Label(options,text="Delay between typed keys:").pack(side="left")
+        ttk.Entry(options,textvariable=self.launch_delay,width=6).pack(side="left",padx=(5,2))
+        ttk.Label(options,text="ms").pack(side="left")
+        self.launch_delay.trace_add("write",lambda *_:self.update_builder_info())
+        ttk.Label(
+            launch,text='Examples:  notepad     steam://open/main     "C:\\Program Files\\Example\\App.exe"',
+            wraplength=760
+        ).pack(anchor="w",pady=(14,5))
+        ttk.Label(launch,text="Long commands may exceed the keyboard's shared onboard macro memory.",foreground="#8a5a00").pack(anchor="w")
+        ttk.Label(launch,textvariable=self.builder_info).pack(anchor="w",pady=(14,0))
+
+        text_tab=ttk.Frame(self.tabs,padding=16); self.tabs.add(text_tab,text="Type text")
+        ttk.Label(text_tab,text="Paste text for the key to type directly.",style="Subtitle.TLabel").pack(anchor="w")
+        ttk.Label(text_tab,text="This does not press Win+R or Enter unless those characters are included below.").pack(anchor="w",pady=(2,8))
+        self.text_value=tk.Text(text_tab,height=12,wrap="word",font=("Consolas",10),undo=True)
+        self.text_value.pack(fill="both",expand=True)
+        if self.builder_source.get("kind")=="text": self.text_value.insert("1.0",self.builder_source.get("text",""))
+        self.text_value.bind("<<Modified>>",self.builder_text_changed)
+        self.text_value.edit_modified(False)
+        text_options=ttk.Frame(text_tab); text_options.pack(fill="x",pady=(8,0))
+        ttk.Label(text_options,text="Delay between typed keys:").pack(side="left")
+        ttk.Entry(text_options,textvariable=self.text_delay,width=6).pack(side="left",padx=(5,2))
+        ttk.Label(text_options,text="ms").pack(side="left")
+        ttk.Label(text_options,textvariable=self.builder_info).pack(side="right")
+        self.text_delay.trace_add("write",lambda *_:self.update_builder_info())
+
         macro=ttk.Frame(self.tabs,padding=10); self.tabs.add(macro,text="Macro")
         self.macro_editor=MacroEditor(macro,self.action.get("events",[])); self.macro_editor.pack(fill="both",expand=True)
         buttons=ttk.Frame(frame); buttons.pack(fill="x",pady=(10,0))
         ttk.Button(buttons,text="Cancel",command=self.cancel).pack(side="right",padx=4)
         ttk.Button(buttons,text="Assign",style="Accent.TButton",command=self.apply).pack(side="right",padx=4)
         self.filter_keys()
+        self.after_idle(self.update_builder_info)
     def filter_keys(self):
         query=self.key_search.get().lower(); self.key_names=[name for name in HID_KEYS if query in name.lower()]
         self.key_list.delete(0,"end")
@@ -1009,17 +1078,43 @@ class ActionEditor(tk.Toplevel):
         tab=self.tabs.index(self.tabs.select())
         if self.macro_editor.recording and tab!=self.macro_tab: self.macro_editor.stop_recording()
         if tab==0: self.after_idle(self.capture.focus_set)
+        elif tab==self.launch_tab: self.after_idle(self.launch_entry.focus_set)
+        elif tab==self.text_tab: self.after_idle(self.text_value.focus_set)
+        if tab in (self.launch_tab,self.text_tab): self.after_idle(self.update_builder_info)
+    def builder_text_changed(self,event=None):
+        if self.text_value.edit_modified():
+            self.text_value.edit_modified(False); self.update_builder_info()
+    def builder_delay(self,variable):
+        try: delay=int(variable.get())
+        except ValueError: raise ValueError("Typing delay must be a whole number of milliseconds")
+        if not 0<=delay<=5000: raise ValueError("Typing delay must be between 0 and 5000 ms")
+        return delay
+    def builder_events(self,kind):
+        if kind=="launch": return launch_command_events(self.launch_command.get(),self.builder_delay(self.launch_delay))
+        return type_string_events(self.text_value.get("1.0","end-1c"),self.builder_delay(self.text_delay))
+    def update_builder_info(self):
+        if not hasattr(self,"text_value"): return
+        tab=self.tabs.index(self.tabs.select())
+        if tab not in (self.launch_tab,self.text_tab): return
+        try:
+            events=self.builder_events("launch" if tab==self.launch_tab else "text")
+            raw,tokens=compile_macro(events)
+            self.builder_info.set(f"{tokens} compiled tokens • {len(raw)} firmware bytes")
+        except Exception as exc: self.builder_info.set(str(exc))
     def capture_key(self,event):
         usage=tkinter_event_usage(event)
         if usage is None: self.capture_status.set(f"{event.keysym} is not supported"); return "break"
         self.on_save({"type":"key","usage":usage}); self.cancel(); return "break"
     def show_current(self):
         kind=self.action.get("type")
+        source=self.action.get("source",{})
         if kind=="key": self.tabs.select(0); self.after_idle(self.capture.focus_set)
         elif kind=="direct":
             for tab,group in enumerate(self.direct_groups,1):
                 if self.action.get("action") in DIRECT_ACTION_GROUPS[group]:
                     self.tabs.select(tab); self.direct_lists[group].selection_set(DIRECT_ACTION_GROUPS[group].index(self.action["action"])); break
+        elif kind=="macro" and source.get("kind")=="launch": self.tabs.select(self.launch_tab)
+        elif kind=="macro" and source.get("kind")=="text": self.tabs.select(self.text_tab)
         else: self.tabs.select(self.macro_tab)
     def cancel(self):
         if self.macro_editor.recording: self.macro_editor.stop_recording()
@@ -1030,10 +1125,18 @@ class ActionEditor(tk.Toplevel):
             selection=self.key_list.curselection()
             if not selection: return
             result={"type":"key","usage":HID_KEYS[self.key_names[selection[0]]]}
-        elif tab<self.macro_tab:
+        elif tab<self.launch_tab:
             group=self.direct_groups[tab-1]; selection=self.direct_lists[group].curselection()
             if not selection: return
             result={"type":"direct","action":DIRECT_ACTION_GROUPS[group][selection[0]]}
+        elif tab in (self.launch_tab,self.text_tab):
+            kind="launch" if tab==self.launch_tab else "text"
+            try:
+                events=self.builder_events(kind); compile_macro(events)
+            except Exception as exc: messagebox.showerror("Cannot build action",str(exc),parent=self); return
+            delay=self.builder_delay(self.launch_delay if kind=="launch" else self.text_delay)
+            value=self.launch_command.get().strip() if kind=="launch" else self.text_value.get("1.0","end-1c")
+            result={"type":"macro","events":events,"source":{"kind":kind,"text":value,"inter_key_ms":delay}}
         else:
             if self.macro_editor.recording: self.macro_editor.stop_recording()
             events=[dict(event) for event in self.macro_editor.events]
@@ -1210,6 +1313,7 @@ class App(tk.Tk):
     def _build(self):
         style=ttk.Style(self)
         style.configure("Title.TLabel",font=("Segoe UI",16,"bold"))
+        style.configure("Subtitle.TLabel",font=("Segoe UI",11,"bold"))
         style.configure("Profile.TLabel",font=("Segoe UI",18,"bold"))
         style.configure("Key.TButton",font=("Segoe UI",10,"bold"),padding=(10,16))
         style.configure("Accent.TButton",font=("Segoe UI",10,"bold"),padding=(12,7))

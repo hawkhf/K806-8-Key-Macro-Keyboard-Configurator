@@ -33,6 +33,10 @@ This is an experimental replacement configurator for the 8-key X806/A804F macrop
 - Direct keyboard capture: focus the Keyboard tab's capture area and press the
   desired physical key to assign it immediately
 - The complete macro recorder and event editor lives directly in the Macro tab
+- Launch app builder: paste a Windows Run command, URI, or executable path and
+  the configurator generates Win+R, typing, and Enter automatically
+- Type text builder: paste a string or multiple lines to type directly without
+  opening the Windows Run dialog
 - Previous/next profile arrows (also Ctrl+Page Up / Ctrl+Page Down)
 - Confirmed direct `Switch → Game II` action
 - Capture-verified direct functions: left/middle/right mouse, double click, fire,
@@ -47,11 +51,10 @@ This is an experimental replacement configurator for the 8-key X806/A804F macrop
 - Profile copy/reset tools and complete-project validation
 - Right-click any key to copy or paste its assignment, or swap it with another
   key; copied assignments can also be pasted into a different profile
-- Detection of the vendor application's last-selected profile; the editor opens on that profile
 - Automatic migration of edited legacy `Office` mappings into the real Game I bank
 - US-layout text-to-macro helper (including shifted punctuation)
 - Persistent last-upload snapshot and timestamped successful-upload history
-- Dry-run and packet preview
+- Confirmation before device writes and packet preview in the activity log
 - Shared object-region capacity checking
 
 ## Verified memory map used
