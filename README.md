@@ -10,7 +10,8 @@ lighting, report rate, and its three onboard profiles.
 > the original vendor configurator available for recovery and start by testing a
 > simple binding. You use this software at your own risk.
 
-This project is not affiliated with or endorsed by the device manufacturer.
+MKESPN may be a trademark of its respective owner. This independent project is
+not affiliated with or endorsed by MKESPN or the device manufacturer.
 
 ## Download and run
 
@@ -20,7 +21,7 @@ It is a standalone Windows application and does not require Python.
 To run from source instead:
 
 ```powershell
-git clone <repository-url>
+git clone https://github.com/hawkhf/K806-8-Key-Macro-Keyboard-Configurator.git
 cd X806_Configurator_MVP
 py -m venv .venv
 .venv\Scripts\Activate.ps1
