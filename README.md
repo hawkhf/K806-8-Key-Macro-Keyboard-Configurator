@@ -1,6 +1,35 @@
 # X806 / A804F Replacement Configurator
 
-This is an experimental replacement configurator for the 8-key X806/A804F macropad reverse-engineered in this conversation.
+An independent, open-source Windows configurator for the 8-key X806/A804F
+macropad. It replaces the device's vendor utility for key bindings, macros,
+lighting, report rate, and its three onboard profiles.
+
+> [!WARNING]
+> This is experimental software based on USB captures rather than vendor
+> documentation. It writes directly to the device's configuration memory. Keep
+> the original vendor configurator available for recovery and start by testing a
+> simple binding. You use this software at your own risk.
+
+This project is not affiliated with or endorsed by the device manufacturer.
+
+## Download and run
+
+The easiest option is the `X806-Configurator.exe` attached to a GitHub release.
+It is a standalone Windows application and does not require Python.
+
+To run from source instead:
+
+```powershell
+git clone <repository-url>
+cd X806_Configurator_MVP
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install .
+x806-configurator
+```
+
+You can also run `run_x806_mvp.bat`, which installs `pywinusb` if needed and
+starts the application.
 
 ## Hardware identity
 
@@ -211,29 +240,6 @@ Run the regression suite with:
 
     py -m unittest -v test_x806_configurator.py
 
-## Version control and recovery
-
-This directory is a Git repository. The first known-good friendly-interface
-version is tagged `friendly-ui-baseline`.
-
-Before accepting an unexpected change, inspect it with:
-
-    git status
-    git diff -- x806_configurator_mvp.py
-
-After an intentional, tested change, save a new recovery point with:
-
-    git add x806_configurator_mvp.py test_x806_configurator.py README.md
-    git commit -m "Describe the change"
-
-If the source is unexpectedly overwritten, first preserve or inspect the changed
-file, then recover the known-good baseline with:
-
-    git restore --source friendly-ui-baseline -- x806_configurator_mvp.py
-
-Other Codex chats should use a separate Git worktree instead of editing this same
-checkout. That prevents a stale task from replacing the active version.
-
 ## Intentional limitations
 
 ### Reading current mappings
@@ -246,20 +252,6 @@ hardware profile unchanged. Use a mapped Switch → Game I/II/III action to acti
 the desired profile. The vendor `config.ini` only stores the vendor UI's last
 selection and is not treated as a live profile read from the device.
 
-## Install / run
-
-Windows with Python 3:
-
-    py -m pip install pywinusb
-
-Then:
-
-    py x806_configurator_mvp.py
-
-or double-click:
-
-    run_x806_mvp.bat
-
 ## Recommended first test
 
 1. Start with the profile currently active in the vendor configuration.
@@ -269,4 +261,24 @@ or double-click:
 5. Verify that key.
 6. Then test a small macro such as Ctrl+C.
 
-Keep the original vendor configurator available as a recovery tool while this MVP is still experimental.
+## Development
+
+Run the regression suite:
+
+```powershell
+py -m unittest -v
+```
+
+Build a standalone Windows executable in `dist`:
+
+```powershell
+.\build_windows.ps1
+```
+
+The GitHub Actions workflow runs the tests and creates the same Windows artifact
+on every push. Pushing a tag such as `v0.1.0` creates a GitHub release and attaches
+the executable automatically.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

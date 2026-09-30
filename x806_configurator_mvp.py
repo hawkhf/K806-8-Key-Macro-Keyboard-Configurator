@@ -28,6 +28,7 @@ Known limitations are intentionally enforced in the UI.
 
 import json
 import math
+import os
 import re
 import time
 import configparser
@@ -43,6 +44,8 @@ except Exception as exc:
     HID_IMPORT_ERROR = exc
 else:
     HID_IMPORT_ERROR = None
+
+__version__ = "0.1.0"
 
 VID = 0x30FA
 PID = 0x1340
@@ -1250,71 +1253,6 @@ class App(tk.Tk):
             ))
 
     def _build(self):
-        menu=tk.Menu(self)
-        fm=tk.Menu(menu,tearoff=0)
-        fm.add_command(label="New",command=self.new_project)
-        fm.add_command(label="Open…",command=self.open_project)
-        fm.add_command(label="Save",command=self.save_project)
-        fm.add_command(label="Save As…",command=self.save_project_as)
-        fm.add_command(label="Export write plan…",command=self.export_write_plan)
-        fm.add_separator(); fm.add_command(label="Exit",command=self.close_app)
-        menu.add_cascade(label="File",menu=fm)
-        tm=tk.Menu(menu,tearoff=0)
-        tm.add_command(label="Validate all profiles",command=self.validate_all_profiles)
-        tm.add_command(label="Protocol Lab…",command=lambda:ProtocolLab(self,self.session))
-        menu.add_cascade(label="Tools",menu=tm)
-        self.config(menu=menu)
-
-        top=ttk.Frame(self,padding=8); top.pack(fill="x")
-        ttk.Button(top,text="Connect X806",command=self.connect).pack(side="left")
-        ttk.Button(top,text="Read Report 7",command=self.read_report).pack(side="left",padx=6)
-        ttk.Button(top,text="Refresh active mode",command=self.refresh_active_profile).pack(side="left",padx=6)
-        ttk.Label(top,textvariable=self.connected_var).pack(side="left",padx=8)
-        ttk.Label(top,textvariable=self.active_var).pack(side="right",padx=8)
-
-        pbar=ttk.Frame(self,padding=(8,0,8,8)); pbar.pack(fill="x")
-        ttk.Label(pbar,text="Profile:").pack(side="left")
-        cb=ttk.Combobox(pbar,textvariable=self.profile_var,values=PROFILE_NAMES,state="readonly",width=14)
-        cb.pack(side="left",padx=6); cb.bind("<<ComboboxSelected>>",lambda e:self.refresh_buttons())
-        self.profile_note=ttk.Label(pbar,text="")
-        self.profile_note.pack(side="left",padx=10)
-        ttk.Button(pbar,text="Preview profile writes",command=self.preview_profile).pack(side="right")
-        ttk.Button(pbar,text="Reset profile",command=self.reset_profile).pack(side="right",padx=5)
-        ttk.Button(pbar,text="Copy profile…",command=self.copy_profile).pack(side="right")
-
-        keyframe=ttk.LabelFrame(self,text="Physical keys",padding=12); keyframe.pack(fill="x",padx=10,pady=5)
-        self.key_buttons={}
-        # 4 x 2 layout
-        for i in range(1,9):
-            r=0 if i<=4 else 1; c=(i-1)%4
-            b=ttk.Button(keyframe,command=lambda n=i:self.edit_key(n))
-            b.grid(row=r,column=c,padx=8,pady=8,sticky="nsew",ipady=12)
-            self.key_buttons[i]=b
-        for c in range(4): keyframe.columnconfigure(c,weight=1)
-
-        write=ttk.LabelFrame(self,text="Device write",padding=10); write.pack(fill="x",padx=10,pady=7)
-        ttk.Label(write,text="Writes require confirmation.").pack(side="left")
-        self.upload_button=ttk.Button(write,text="UPLOAD selected profile",command=self.upload_profile)
-        self.upload_button.pack(side="right")
-
-        note=(
-            "Vendor captures confirm three hardware profiles. Every upload rebuilds Game I, Game II and Game III together "
-            "because their keyboard and macro objects share one packed memory region."
-        )
-        ttk.Label(self,text=note,wraplength=1000,padding=(12,2)).pack(fill="x")
-
-        logf=ttk.LabelFrame(self,text="Protocol log",padding=6); logf.pack(fill="both",expand=True,padx=10,pady=7)
-        self.log=tk.Text(logf,wrap="none",font=("Consolas",9))
-        sy=ttk.Scrollbar(logf,orient="vertical",command=self.log.yview); sx=ttk.Scrollbar(logf,orient="horizontal",command=self.log.xview)
-        self.log.configure(yscrollcommand=sy.set,xscrollcommand=sx.set)
-        self.log.grid(row=0,column=0,sticky="nsew"); sy.grid(row=0,column=1,sticky="ns"); sx.grid(row=1,column=0,sticky="ew")
-        logf.rowconfigure(0,weight=1); logf.columnconfigure(0,weight=1)
-
-        bot=ttk.Frame(self,padding=(10,0,10,8)); bot.pack(fill="x")
-        ttk.Label(bot,textvariable=self.status).pack(side="left")
-        ttk.Button(bot,text="Clear log",command=lambda:self.log.delete("1.0","end")).pack(side="right")
-
-    def _build(self):
         style=ttk.Style(self)
         style.configure("Title.TLabel",font=("Segoe UI",16,"bold"))
         style.configure("Subtitle.TLabel",font=("Segoe UI",11,"bold"))
@@ -1796,5 +1734,10 @@ class App(tk.Tk):
     def close_app(self):
         self.session.close(); self.destroy()
 
-if __name__=="__main__":
+def main():
+    """Launch the desktop configurator."""
     App().mainloop()
+
+
+if __name__=="__main__":
+    main()

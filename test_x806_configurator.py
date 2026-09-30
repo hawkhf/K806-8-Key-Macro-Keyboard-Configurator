@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -9,6 +10,21 @@ import x806_configurator_mvp as x
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_default_upload_history_uses_local_app_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            previous=os.environ.get("LOCALAPPDATA")
+            try:
+                os.environ["LOCALAPPDATA"]=directory
+                self.assertEqual(
+                    x.upload_log_directory(),
+                    Path(directory)/"X806 Configurator"/"upload_history",
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("LOCALAPPDATA",None)
+                else:
+                    os.environ["LOCALAPPDATA"]=previous
+
     def test_launch_command_builder_wraps_pasted_command(self):
         events=x.launch_command_events(r'"C:\Program Files\Example\App.exe"',inter_key_ms=10)
         self.assertEqual(events[:4],x.chord_events(["Left Win"],"R"))

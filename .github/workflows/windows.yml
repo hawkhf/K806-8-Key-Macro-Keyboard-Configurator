@@ -1,0 +1,50 @@
+name: Windows tests and build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install ".[build]"
+
+      - name: Run regression tests
+        run: python -m unittest -v
+
+      - name: Build standalone application
+        run: >-
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          --name X806-Configurator x806_configurator_mvp.py
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: X806-Configurator-windows
+          path: dist/X806-Configurator.exe
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create $env:GITHUB_REF_NAME
+          dist/X806-Configurator.exe
+          --generate-notes
+          --title "X806 Configurator $env:GITHUB_REF_NAME"

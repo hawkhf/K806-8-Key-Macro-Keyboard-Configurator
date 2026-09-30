@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.venv/
+.venv-*/
+*.egg-info/
 
 # USB captures and generated packet exports
 *.pcap
@@ -18,3 +21,8 @@ Save Profile.json
 *.log
 *.tmp
 ~*
+
+# Local application builds
+build/
+dist/
+*.spec

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "x806-configurator"
+version = "0.1.0"
+description = "Open-source Windows configurator for the X806/A804F 8-key macropad"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "X806 Configurator contributors"}]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Win32 (MS Windows)",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Hardware :: Hardware Drivers",
+]
+dependencies = [
+    "pywinusb>=0.4.2; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.10,<7"]
+
+[project.scripts]
+x806-configurator = "x806_configurator_mvp:main"
+x806-probe = "x806_probe:main"
+
+[tool.setuptools]
+py-modules = ["x806_configurator_mvp", "x806_probe"]
