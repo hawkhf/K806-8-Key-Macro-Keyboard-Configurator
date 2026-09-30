@@ -167,6 +167,29 @@ Run the regression suite with:
 
     py -m unittest -v test_x806_configurator.py
 
+## Version control and recovery
+
+This directory is a Git repository. The first known-good friendly-interface
+version is tagged `friendly-ui-baseline`.
+
+Before accepting an unexpected change, inspect it with:
+
+    git status
+    git diff -- x806_configurator_mvp.py
+
+After an intentional, tested change, save a new recovery point with:
+
+    git add x806_configurator_mvp.py test_x806_configurator.py README.md
+    git commit -m "Describe the change"
+
+If the source is unexpectedly overwritten, first preserve or inspect the changed
+file, then recover the known-good baseline with:
+
+    git restore --source friendly-ui-baseline -- x806_configurator_mvp.py
+
+Other Codex chats should use a separate Git worktree instead of editing this same
+checkout. That prevents a stale task from replacing the active version.
+
 ## Intentional limitations
 
 ### Reading current mappings
